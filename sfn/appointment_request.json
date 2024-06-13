@@ -1,0 +1,111 @@
+{
+    "StartAt": "AdjustAvailibility",
+    "States": {
+      "AdjustAvailibility": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::lambda:invoke",
+        "OutputPath": "$.Payload",
+        "Parameters": {
+          "Payload.$": "$"
+        },
+        "Retry": [
+          {
+            "ErrorEquals": [
+              "Lambda.ServiceException",
+              "Lambda.AWSLambdaException",
+              "Lambda.SdkClientException",
+              "Lambda.TooManyRequestsException"
+            ],
+            "IntervalSeconds": 1,
+            "MaxAttempts": 3,
+            "BackoffRate": 2
+          }
+        ],
+        "Next": "CheckToken"
+      },
+      "CheckToken": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+        "Parameters": {
+          "FunctionName": "adjust_availability",
+          "Payload": {
+            "provider_id.$": "$.provider_id",
+            "appointment_id.$": "$.appointment_id",
+            "task_token.$": "$$.Task.Token"
+          }
+        },
+        "TimeoutSeconds": 1800,
+        "HeartbeatSeconds": 5,
+        "Next": "ConfirmationResult",
+        "Catch": [
+          {
+            "ErrorEquals": [
+              "States.Timeout"
+            ],
+            "ResultPath": "$.error",
+            "Next": "UpdateExpiredStatus"
+          }
+        ],
+        "Retry": [
+          {
+            "ErrorEquals": [
+              "States.ALL"
+            ],
+            "BackoffRate": 2,
+            "IntervalSeconds": 5,
+            "MaxAttempts": 360
+          }
+        ]
+      },
+      "ConfirmationResult": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.Payload.status",
+            "StringEquals": "CONFIRMED",
+            "Next": "Do things for confirmed appointment"
+          }
+        ],
+        "Default": "CheckToken"
+      },
+      "Do things for confirmed appointment": {
+        "Type": "Pass",
+        "End": true
+      },
+      "UpdateExpiredStatus": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::lambda:invoke",
+        "Parameters": {
+          "FunctionName": "update_appointment_status",
+          "Payload": {
+            "provider_id.$": "$.provider_id",
+            "appointment_id.$": "$.appointment_id",
+            "status": "EXPIRED"
+          }
+        },
+        "Next": "Re-adjust Availability"
+      },
+      "Re-adjust Availability": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::lambda:invoke",
+        "OutputPath": "$.Payload",
+        "Parameters": {
+          "Payload.$": "$"
+        },
+        "Retry": [
+          {
+            "ErrorEquals": [
+              "Lambda.ServiceException",
+              "Lambda.AWSLambdaException",
+              "Lambda.SdkClientException",
+              "Lambda.TooManyRequestsException"
+            ],
+            "IntervalSeconds": 1,
+            "MaxAttempts": 3,
+            "BackoffRate": 2
+          }
+        ],
+        "End": true
+      }
+    }
+  }
